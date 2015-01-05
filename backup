@@ -1,0 +1,557 @@
+#! /bin/bash
+
+# BACKUP UTILITY
+# ======================================================================
+author="David Waring"
+vers="3.2.4"
+usage_string="backup [-huv] [-cdeflrs file_location] [-g true|false] [-o rsync options] [commands]"
+
+
+# LICENSE
+# ======================================================================
+# BACKUP UTILITY
+# Copyright (C) 2009 David Waring
+# Email: dwaring87@gmail.com
+# 
+# ----------------------------------------------------------------------
+# This file is the executable for the Backup Utility for Mac OS X.  Its 
+# intended use is for cloning the internal hard drive to an external 
+# disk which will become bootable.  See "backup -v" and "backup ?" for 
+# more information.
+#
+# NOTE: ALL NECESSARY VARIABLES ARE STORED IN CONFIGURATION FILES.
+# THE DEFAULT LOCATION IS IN THE "default" FILE IN THE USER'S HOME 
+# DIRECTORY, IN THE ".backup_configs" FOLDER.  THE LOCATION OF THE CONFIG 
+# FILE CAN BE OVERRIDDEN USING THE -c AND -f OPTIONS AT EXECUTION.  THE 
+# TEMPLATE FOR THE CONFIG FILE IS:
+# 
+# SOURCE=/
+# DEST=/Volumes/Backup
+# EXCLUDE=~/.backup_exclude.txt
+# LOG=~/Library/Logs/backup.log
+# GROWL=true
+# RSYNC_LOC=/usr/local/bin/rsync
+# RSYNC_ARGS= 
+# 
+# ----------------------------------------------------------------------
+# 
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+
+# VARIABLES
+# =======================================================================
+# CONFIG_FOLDER: the location of the folder that holds the config files
+# CONFIG: The location of the backup configuration file
+# NAME: the name of the program to be used by Growl
+# READ_*: a boolean to toggle the reading of the var from the config file
+CONFIG_FOLDER=~/.backup_configs
+CONFIG=default
+NAME="BackUp"
+READ_SOURCE=true;
+READ_DEST=true;
+READ_EXCLUDE=true;
+READ_LOG=true;
+READ_RSYNC_LOC=true;
+READ_RSYNC_ARGS=true;
+READ_GROWL=true;
+
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#                             VERSION                                   #
+# version()                                                             #
+# displays version and author information about the program             #
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+version() { 
+
+# Get the last modified date of the file
+mod=`ls -l $0 | sed 's/  */ /g' | cut -d' ' -f6,7` 
+
+sed -e 's/^    //' <<EndVersion
+  BACKUP UTILITY
+  Version $vers
+  Author:  $author
+  Last Updated: $mod
+  License:  GPL, http://www.gnu.org/copyleft/gpl.html
+	
+  This program will create a complete clone of the source location at the
+  destination location.  Its intended to create a complete bootable 
+  backup of the internal disk to an external disk.
+  
+  See "$0 help" for more information
+EndVersion
+	exit 0
+    
+}
+# END OF VERSION
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#                               HELP                                    #
+# help()                                                                #
+# displays the help listing                                             #
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+help()
+{
+sed -e 's/^    //' <<EndHelp
+======================================BACKUP UTILITY HELP ======================================
+  to view this information again type "$0 help" or "$0 ?"
+
+  AUTHOR
+  $author
+  
+  VERSION
+  $vers
+
+  USAGE
+  $usage_string
+
+  CONFIGURATION FILE 
+  folder: $CONFIG_FOLDER
+  file name: $CONFIG
+  (the defaults are located in the "VARIABLES" section of this script)
+
+  CURRENT BACKUP VARIABLES
+  source: $SOURCE
+  destination: $DEST
+  exclude file: $EXCLUDE
+  log file: $LOG
+  rsync loc: $RSYNC_LOC
+  rsync arguments: $OPTS
+  growl: $GROWL
+
+  OPTIONS
+  -c [location] changes the name of the CONFIG file
+  -d [location] changes the DESTINATION location for the backup
+  -e [location] changes the location of the EXCLUDE file
+  -f [location] changes the FOLDER that contains the config files
+  -g [true|false] changes the usage of the GROWL notifications
+  -h displays the HELP information
+  -l [location] changes the location of the LOG file
+  -o [options] adds OPTIONS to rsync.  In Use: -aHEXAvx --delete --progress --stats --timeout=999
+  -r [location] changes the location of the RSYNC executable
+  -s [location] changes the SOURCE location for the backup
+  -u shows the USAGE of the command
+  -v shows author and VERSION information
+
+  COMMANDS
+  config, configure
+  - create or modify the specified configuration file using the GUI
+  
+  help, ? 
+  - displays this help information
+  
+  log
+  - opens the Backup Utility log file
+EndHelp
+    exit 0
+}
+# END OF USAGE
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#                               USAGE                                   #
+# usage()                                                               #
+# displays the proper usage of the command and any available flags      #
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+usage()
+{
+sed -e 's/^    //' <<EndUsage
+    Usage: $usage_string
+    type "$0 ?" for more information
+EndUsage
+    exit 0
+}
+# END OF USAGE
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#                               EXIT                                    #
+# p_exit()                                                              #
+# PARAMETERS:                                                           #
+#    $1 : exit message                                                  #
+# exit the program with the specified exit message                      #
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+p_exit() 
+{
+    echo "[PROGRAM EXIT]"
+    echo "$1"
+    exit 0
+}
+# END OF EXIT
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#                           GET_VARS                                    #
+# get_vars()                                                            #
+# PARAMETERS:                                                           #
+#    $CONFIG: the location of the configuration file                     #
+# checks for the presence of the config file and attempts to read in    #
+# the necessary variables from the file.  If the file is not found,     #
+# then the program will attempt to open the GUI configuration tool,     #
+# or prompt the user at the console for the variables.                  #
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+get_vars()
+{
+
+# CHECK FOR THE PRESENCE OF A CONFIG FILE
+# =======================================================================
+
+# combine config and folder for full path location
+CONFIG_LOC=$CONFIG_FOLDER/$CONFIG
+
+# IF THE FILE IS PRESENT...
+if [ -f $CONFIG_LOC ]; then
+	UN=`echo $USER` 
+	
+	# READ THE FILE FOR EACH VARIABLE
+	if [[ $READ_SOURCE == true ]]; then SOURCE=`grep SOURCE $CONFIG_LOC | cut -d '=' -f 2 | sed 's/~/\/Users\/'$UN'/'`; fi
+	if [[ $READ_DEST == true ]]; then DEST=`grep DEST $CONFIG_LOC | cut -d '=' -f 2 | sed 's/~/\/Users\/'$UN'/'`; fi
+	if [[ $READ_EXCLUDE == true ]]; then EXCLUDE=`grep EXCLUDE $CONFIG_LOC | cut -d '=' -f 2 | sed 's/~/\/Users\/'$UN'/'`; fi
+	if [[ $READ_LOG == true ]]; then LOG=`grep LOG $CONFIG_LOC | cut -d '=' -f 2 | sed 's/~/\/Users\/'$UN'/'`; fi
+	if [[ $READ_GROWL == true ]]; then GROWL=`grep GROWL $CONFIG_LOC | cut -d '=' -f 2`; fi
+	if [[ $READ_RSYNC_LOC == true ]]; then RSYNC_LOC=`grep RSYNC_LOC $CONFIG_LOC | cut -d '=' -f 2 | sed 's/~/\/Users\/'$UN'/'`; fi
+	if [[ $READ_RSYNC_ARGS == true ]]; then OPTS=`grep RSYNC_ARGS $CONFIG_LOC | cut -d '=' -f 2`; fi
+	
+	# Check for empty RSYNC_ARGS
+	#if [[ $RSYNC_ARGS="RSYNC_ARGS:" ]];then OPTS=" "; fi
+	
+# IF THE FILE IS NOT FOUND...	
+else
+	# Print an Error Message
+	echo ">>>ERROR: config file not found<<<"
+	echo ""
+	echo "Opening the Backup Utility to configure the settings..."
+	
+	# open the Backup Utility to configure the config file
+	open -a "Backup Utility"
+	
+	# Quit the backup program
+	exit 1
+fi
+
+}
+
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#                               BACKUP                                  #
+# backup()                                                              #
+# PARAMETERS:                                                           #
+#   $SOURCE: source location for the backup                             #
+#   $DEST: the destination location for the backup                      #
+#   $EXLUDE: the loc of the exclude file (used by rsync to skip files)  #
+#   $LOG: the location of the log file to be generated                  #
+#   $RSYNC_LOC: the location of the rsync executable to be used         #
+#   $OPTS: arguments to be passed to rsync                              #
+#   $GROWL: a boolean flag to toggle the use of growl notifications     #
+# use the above variables to backup the source directory to the         #
+# destination directory using rsync.  A log file will be generated at   #
+# the location specified by $LOG.                                       #
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+backup()
+{
+
+# CHECK TO SEE IF GROWL IS INSTALLED
+# =======================================================================
+if [[ $GROWL == "true" ]]; then
+	if which growlnotify >/dev/null; then
+    	echo -n ""
+	else
+    	echo "ERROR: Growl is not installed...disabling..."
+    	echo ""
+    	GROWL=false
+	fi
+fi
+	
+	
+# NOTIFY THE START OF THE BACKUP
+# =======================================================================
+if $GROWL; then
+	growlnotify -n $NAME -I $SOURCE -t "BackUp Started" -m "Starting the backup: $SOURCE to $DEST"
+fi	
+	
+	
+
+# PRINT VARIABLES TO LOG FILE
+# =======================================================================
+echo "====================BACKUP UTILITY LOG===================="
+echo ""
+echo "USING CONFIG FILE: $CONFIG"
+echo "      from folder: $CONFIG_FOLDER"
+echo ""
+echo "=====VARIABLES======"
+echo "Source: $SOURCE"
+echo "Destination: $DEST"
+echo "Exclude File: $EXCLUDE"
+echo "Log File: $LOG"
+echo "Rsync location: $RSYNC_LOC"
+echo "Rsync Arguments: $OPTS"
+echo "Growl: $GROWL"
+echo ""
+
+
+
+# SANITY CHECKS
+# =======================================================================
+echo "=====SANITY CHECKS====="
+
+# Check for the Source location
+echo "checking the Source location..."
+if [ ! -d "$SOURCE" ]; then
+	echo ">>>ERROR: SOURCE NOT FOUND<<<"
+	echo ""
+	if $GROWL; then
+		growlnotify -s -n $NAME -I $SOURCE -t "BACKUP FAILED" -m "The source location $SOURCE could not be found."
+	fi
+	p_exit "The Source location $SOURCE could not be found"
+else
+	echo "Source found."
+fi
+	
+# Check for the Destination location
+echo "checking the Destination location..."
+if [ ! -d "$DEST" ]; then
+	echo ">>>ERROR: DESTINATION NOT FOUND<<<"
+	echo ""
+	if $GROWL; then
+		growlnotify -s -n $NAME -I $SOURCE -t "BACKUP FAILED" -m "The destination location $DEST could not be found or the disk is not connected."
+	fi
+	p_exit "The Destination location could not be found"
+else
+	echo "Destination found."
+fi
+
+# Check for Rsync locations
+# Check default / specified location
+# If not there, then check /usr/bin and then /usr/local/bin
+echo "checking the location of rsync..."
+if [ -f "$RSYNC_LOC" ]; then
+	echo "rsync found."
+elif [ -f /usr/bin/rsync ]; then
+	RSYNC_LOC="/usr/bin/rsync"
+	echo "CHANGED RSYNC LOCATION TO: $RSYNC_LOC"
+elif [ -f /usr/local/bin/rsync ]; then
+	RSYNC_LOC="/usr/local/bin/rsync"
+	echo "CHANGED RSYNC LOCATION TO: $RSYNC_LOC"
+else
+	echo ">>>ERROR: RSYNC NOT FOUND<<<"
+	echo ""
+	if $GROWL; then
+		growlnotify -s -n $NAME -I $SOURCE -t "BACKUP FAILED" -m "Rysnc could not be found.  Please install rsync."
+	fi
+	p_exit "Rsync could not be found.  Please install rsync in either: 1) /usr/bin/ or 2) /usr/local/bin/"
+fi
+echo ""
+
+
+# BACKUP
+# =======================================================================
+# Get start time in seconds
+start_time=$(date +%s)
+
+echo "=====STARTING BACKUP====="
+echo `date`
+echo ""
+
+
+# RSYNC ARGS FOR VERSION 3.2.3 (used in tiger and leopard with rsync 3.0.4)
+# sudo "$RSYNC_LOC" -ahHvx --delete \
+# a = rlptgoD
+
+# NOW USING RSYNC 3.0.6 with different args
+sudo "$RSYNC_LOC" -aHEXAx -v --delete \
+--exclude-from "$EXCLUDE" \
+--progress --stats --timeout=999 $OPTS \
+"$SOURCE" "$DEST"
+
+echo ""
+echo "=====RSYNC FINISHED====="
+echo ""
+
+
+# BLESS THE BACKUP DRIVE TO BECOME BOOTABLE
+# =======================================================================
+# If the backup destination is a full system backup, then
+# bless the drive to make it bootable
+
+echo "=====BLESS THE DEST DRIVE====="
+
+if [ -d "$DEST/System/Library/CoreServices" ]; then
+	echo "making the backup bootable..."
+	sudo bless -folder "$DEST/System/Library/CoreServices"
+else
+	echo "backup not bootable."
+fi
+echo ""
+
+
+
+# OUTPUT END OF BACKUP AND TRANSFER RESULTS
+# =======================================================================
+# Get End Time in Seconds
+end_time=$(date +%s)
+
+# Get Transfer Statistics and output them to the log and growl
+stat_files=`cat $LOG | grep "Number of files: " | cut -d ":" -f2`
+stat_trans=`cat $LOG | grep "Number of files transferred" | cut -d ":" -f2`
+stat_time=$((end_time - start_time))
+if [ $stat_time -lt 60 ]; then
+	stat_time="$stat_time seconds"
+elif [ $stat_time -lt 3600 ]; then
+	stat_time="$((stat_time / 60)) minutes and $((stat_time % 60)) seconds"
+else
+	stat_time="$((stat_time / 3600)) hours and $(((stat_time % 3600) / 60)) minutes"
+fi
+
+# Output transfer stats to the log and growl
+echo "=====BACKUP FINISHED====="
+echo `date`
+echo "Total Number of Files: $stat_files"
+echo "Number of Updated Files Transferred:$stat_trans"
+echo "Transfer Time: $stat_time"
+
+if $GROWL; then
+	growlnotify -s -n $NAME -I $SOURCE -t "BackUp Finished" -m "Finised the Backup of $SOURCE. $stat_files were scanned and $stat_trans files were transferred in $stat_time."
+fi
+
+exit 0
+
+}
+# END OF BACKUP
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+
+# GET OPTS
+# =======================================================================
+
+while getopts ":c:d:e:f:g:hl:o:r:s:uv" Option
+do
+  case $Option in
+  	c)
+  	CONFIG=$OPTARG
+  	;;
+  	d)
+  	DEST=$OPTARG
+  	READ_DEST=false
+  	;;
+  	e)
+  	EXCLUDE=$OPTARG
+  	READ_EXCLUDE=false
+  	;;
+	f)
+	CONFIG_FOLDER=$OPTARG
+	;;
+	g)
+	if [ $OPTARG == "false" ]; then
+		GROWL=false
+	elif [ $OPTARG == "true" ]; then
+		GROWL=true
+	else
+		echo "ERROR: you must specify 'true' or 'false' for growl support when using the -g option"
+		exit 1
+	fi
+	READ_GROWL=false
+	;;
+	h)
+	help
+	;;
+  	l)
+  	LOG=$OPTARG
+  	READ_LOG=false
+  	;;
+  	o)
+  	OPTS=$OPTARG
+  	READ_RSYNC_ARGS=false
+  	;;
+  	r)
+  	RSYNC_LOC=$OPTARG
+  	READ_RSYNC_LOC=false
+  	;;
+  	s)
+  	SOURCE=$OPTARG
+  	READ_SOURCE=false
+  	;;
+    u)
+	usage
+	;;
+	v)
+  	version
+  	;;
+  	*)
+  	echo "ERROR: Incorrect options given."
+  	echo "       To pass more options to rsync use the -o flag"
+  	echo "       See the help for more information."
+  	echo ""
+	usage
+	;;
+  esac
+done
+shift $(($OPTIND - 1))
+
+
+
+# GET BACKUP VARIABLES
+# =======================================================================
+get_vars
+
+
+
+# GET ACTION
+# =======================================================================
+# Get the action from the first given parameter
+
+action=$( printf "%s\n" "$1" | tr 'A-Z' 'a-z' )
+
+# Parse the action
+case $action in 
+"config" | "configure" )
+	echo "Opening the Backup Utility to modify the config file..."
+	open -a "Backup Utility"
+	;;
+"?" | "help" )
+	help
+	;;
+"log" | "logs" )
+	open $LOG
+	;;
+* )
+	if [[ $# > 0 ]]; then
+  		echo "ERROR: Incorrect Usage."
+  		echo "       To pass more options to rsync use the -o flag"
+  		echo "       See the help for more information."
+  		echo ""
+		usage
+	else
+		sudo -v
+		backup | tee "$LOG"
+	fi
+	;;
+esac
+
+
+
+# EXIT
+# =======================================================================
+exit 0
